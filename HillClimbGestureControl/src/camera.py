@@ -7,7 +7,7 @@ error handling and performance monitoring.
 
 import cv2
 import time
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Any
 from src.utils.logger import setup_logger
 
 
@@ -86,7 +86,7 @@ class Camera:
             logger.error(f"Camera initialization error: {e}")
             return False
     
-    def read_frame(self) -> Tuple[bool, Optional]:
+    def read_frame(self) -> Tuple[bool, Optional[Any]]:
         """
         Capture and return a frame.
         
