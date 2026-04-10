@@ -1,0 +1,44 @@
+{
+  "gestures": {
+    "OPEN_HAND": {
+      "key": "w",
+      "action": "gas",
+      "description": "All fingers extended"
+    },
+    "FIST": {
+      "key": "s",
+      "action": "brake",
+      "description": "All fingers closed"
+    },
+    "PEACE_SIGN": {
+      "key": "a",
+      "action": "lean_left",
+      "description": "Index and middle fingers up"
+    },
+    "THREE_FINGERS": {
+      "key": "d",
+      "action": "lean_right",
+      "description": "Index, middle, and ring fingers up"
+    },
+    "THUMBS_UP": {
+      "key": "space",
+      "action": "nitro",
+      "description": "Thumb pointing upward"
+    },
+    "THUMBS_DOWN": {
+      "key": "shift",
+      "action": "emergency_brake",
+      "description": "Thumb pointing downward"
+    },
+    "OK_SIGN": {
+      "key": "r",
+      "action": "reset",
+      "description": "Thumb and index forming a circle"
+    },
+    "POINTING": {
+      "key": "p",
+      "action": "pause",
+      "description": "Only index finger extended"
+    }
+  }
+}
