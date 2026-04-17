@@ -23,10 +23,10 @@ class KeyController:
     
     # Map gesture keys to pynput Key objects
     KEY_MAP = {
-        'w': 'w',                  # Gas
-        's': 's',                  # Brake
-        'a': 'a',                  # Lean Left
-        'd': 'd',                  # Lean Right
+        'right': Key.right,            # Gas (Right Arrow)
+        'left': Key.left,             # Brake (Left Arrow)
+        'up': Key.up,               # Lean Left / Pitch Up (Up Arrow)
+        'down': Key.down,             # Lean Right / Pitch Down (Down Arrow)
         'space': Key.space,        # Nitro
         'shift': Key.shift,        # Emergency Brake
         'r': 'r',                  # Reset
@@ -167,6 +167,8 @@ class KeyController:
     
     def release_all(self) -> None:
         """Release all currently active keys."""
+        if not self.active_keys:
+            return
         for key_name in list(self.active_keys):
             self.release_key(key_name)
         

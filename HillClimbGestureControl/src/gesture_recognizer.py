@@ -35,16 +35,16 @@ class GestureRecognizer:
     understand and explain.
     """
     
-    # Gesture names and their corresponding game keys
+    # Gesture names and their corresponding internal action keys
     GESTURE_MAP = {
-        'OPEN_HAND': 'w',           # Gas
-        'FIST': 's',                # Brake
-        'PEACE_SIGN': 'a',          # Lean Left
-        'THREE_FINGERS': 'd',       # Lean Right
-        'THUMBS_UP': 'space',       # Nitro/Boost
-        'THUMBS_DOWN': 'shift',     # Emergency Brake
-        'OK_SIGN': 'r',             # Reset/Restart
-        'POINTING': 'p',            # Pause
+        'OPEN_HAND': 'up',           # Up Arrow (Pitch Up in air)
+        'FIST': 'space',            # Space (Brake)
+        'PEACE_SIGN': 'left',          # Left Arrow (Reverse/Pitch Backward)
+        'POINTING': 'right',            # Right Arrow (Accelerate/Pitch Forward)
+        'THREE_FINGERS': 'down',       # Down Arrow (Pitch Down in air)
+        'THUMBS_UP': None,          
+        'THUMBS_DOWN': None,        
+        'OK_SIGN': None,            
         'NONE': None                # No gesture
     }
     
@@ -186,15 +186,9 @@ class GestureRecognizer:
             -self.finger_extension_threshold
         )
         
-        # Index and middle closer to each other (not spread wide)
-        index_middle_distance = calculate_distance(
-            landmarks[LandmarksProcessor.INDEX_TIP],
-            landmarks[LandmarksProcessor.MIDDLE_TIP]
-        )
-        
+        # Remove index-middle distance check to allow standard "V" sign (fingers spread apart)
         return (index_extended and middle_extended and 
-                not ring_extended and not pinky_extended and
-                index_middle_distance < self.peace_min_distance)
+                not ring_extended and not pinky_extended)
     
     def _is_three_fingers(self, landmarks: list) -> bool:
         """
@@ -374,8 +368,8 @@ class GestureRecognizer:
             -self.finger_extension_threshold
         )
         
-        return (index_extended and not thumb_extended and 
-                not middle_extended and not ring_extended and not pinky_extended)
+        return (index_extended and not middle_extended and 
+                not ring_extended and not pinky_extended)
     
     def get_gesture_key(self, gesture_name: str) -> Optional[str]:
         """

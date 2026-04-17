@@ -25,6 +25,12 @@
     "show_fps": true,
     "font_size": 1.0
   },
+  "swipe": {
+    "pinch_threshold": 0.05,
+    "swipe_threshold": 0.08,
+    "swipe_cooldown": 0.4,
+    "swipe_distance_pixels": 300
+  },
   "performance": {
     "frame_rate_limit": 60,
     "skip_frames": 0

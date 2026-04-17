@@ -1,22 +1,28 @@
 """
-MediaPipe hand detection wrapper.
+MediaPipe hand detection wrapper using Tasks API.
 
 Wraps MediaPipe Hands for hand detection and landmark extraction
 with configurable detection thresholds.
 """
 
+import os
+import time
 import mediapipe as mp
+from mediapipe.tasks import python
+from mediapipe.tasks.python import vision
 from typing import List, Optional, Tuple
 from src.utils.logger import setup_logger
 from src.utils.landmarks_processor import LandmarksProcessor
-
+import cv2
 
 logger = setup_logger(__name__)
 
+# Verify model path (assumes hand_landmarker.task is in the project root)
+MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'hand_landmarker.task')
 
 class HandDetector:
     """
-    Hand detection using MediaPipe.
+    Hand detection using MediaPipe Tasks API.
     
     Detects hands and extracts 21 landmarks per hand using MediaPipe Hands.
     """
@@ -26,76 +32,76 @@ class HandDetector:
                  min_tracking_confidence: float = 0.5):
         """
         Initialize hand detector.
-        
-        Args:
-            max_num_hands: Maximum number of hands to detect (1 or 2)
-            min_detection_confidence: Minimum confidence for hand detection (0-1)
-            min_tracking_confidence: Minimum confidence for hand tracking (0-1)
         """
         self.max_num_hands = max(1, min(max_num_hands, 2))
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
         
-        # Initialize MediaPipe
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=self.max_num_hands,
-            min_detection_confidence=self.min_detection_confidence,
-            min_tracking_confidence=self.min_tracking_confidence
-        )
-        
-        self.mp_drawing = mp.solutions.drawing_utils
-        logger.info(f"Hand detector initialized - max_hands: {self.max_num_hands}, "
-                   f"detection_conf: {self.min_detection_confidence}")
+        try:
+            # Initialize MediaPipe Tasks
+            base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+            options = vision.HandLandmarkerOptions(
+                base_options=base_options,
+                num_hands=self.max_num_hands,
+                min_hand_detection_confidence=self.min_detection_confidence,
+                min_hand_presence_confidence=self.min_tracking_confidence,
+                min_tracking_confidence=self.min_tracking_confidence,
+                running_mode=vision.RunningMode.VIDEO
+            )
+            self.detector = vision.HandLandmarker.create_from_options(options)
+            
+            # Hardcoded hand connections since mp.solutions is missing
+            self.HAND_CONNECTIONS = [
+                (0, 1), (1, 2), (2, 3), (3, 4),
+                (0, 5), (5, 6), (6, 7), (7, 8),
+                (5, 9), (9, 10), (10, 11), (11, 12),
+                (9, 13), (13, 14), (14, 15), (15, 16),
+                (13, 17), (0, 17), (17, 18), (18, 19), (19, 20)
+            ]
+            
+            logger.info(f"Hand detector initialized (Tasks API) - max_hands: {self.max_num_hands}, "
+                       f"detection_conf: {self.min_detection_confidence}")
+        except Exception as e:
+            logger.error(f"Failed to initialize HandDetector tasks API: {e}")
+            self.detector = None
     
     def detect_hands(self, frame) -> Tuple[List, bool]:
         """
         Detect hands and extract landmarks from frame.
-        
-        Args:
-            frame: Input frame (BGR format from OpenCV)
-            
-        Returns:
-            Tuple[hands_data, success]: hands_data is list of hand dictionaries:
-                [
-                    {
-                        'landmarks': [(x, y, z), ...],  # 21 landmarks
-                        'handedness': 'Left' or 'Right',
-                        'confidence': float (0-1)
-                    },
-                    ...
-                ]
-                
-                success: True if detection successful
         """
+        if self.detector is None:
+            return [], False
+
         try:
             # Convert BGR to RGB
-            import cv2
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # Run detection
-            results = self.hands.process(frame_rgb)
+            # Create MediaPipe Image
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_rgb)
+            
+            # Run detection (use current time in milliseconds)
+            timestamp_ms = int(time.time() * 1000)
+            results = self.detector.detect_for_video(mp_image, timestamp_ms)
             
             hands_data = []
             
-            if results.multi_hand_landmarks and results.multi_handedness:
-                for landmarks_proto, handedness_proto in zip(
-                    results.multi_hand_landmarks,
-                    results.multi_handedness
-                ):
-                    # Extract landmarks
-                    landmarks = LandmarksProcessor.extract_hand_data(landmarks_proto)
+            if results and results.hand_landmarks:
+                for i in range(len(results.hand_landmarks)):
+                    landmarks_list = results.hand_landmarks[i]
+                    handedness_cat = results.handedness[i][0]
+                    
+                    # Extract landmarks directly as tuple
+                    landmarks = [(lm.x, lm.y, lm.z) for lm in landmarks_list]
                     
                     # Get hand label and confidence
-                    label = handedness_proto.classification[0].label
-                    confidence = handedness_proto.classification[0].score
+                    label = handedness_cat.category_name
+                    confidence = handedness_cat.score
                     
                     hands_data.append({
                         'landmarks': landmarks,
                         'handedness': label,
                         'confidence': confidence,
-                        'landmarks_proto': landmarks_proto  # For drawing
+                        'landmarks_raw': landmarks_list  # For drawing
                     })
             
             return hands_data, True
@@ -107,12 +113,6 @@ class HandDetector:
     def check_hand_visibility(self, landmarks: List) -> float:
         """
         Check hand visibility quality based on landmarks spread.
-        
-        Args:
-            landmarks: List of 21 landmarks
-            
-        Returns:
-            float: Visibility score (0-1)
         """
         try:
             bbox = LandmarksProcessor.get_hand_bounding_box(landmarks)
@@ -131,43 +131,41 @@ class HandDetector:
     
     def draw_hands(self, frame, hands_data) -> None:
         """
-        Draw hand landmarks and skeleton on frame.
-        
-        Args:
-            frame: Input frame to draw on
-            hands_data: Hand data from detect_hands()
+        Draw hand landmarks and skeleton on frame using OpenCV directly.
         """
         try:
+            height, width = frame.shape[:2]
+            
             for hand in hands_data:
-                if 'landmarks_proto' in hand:
-                    # Draw landmarks and skeleton
-                    self.mp_drawing.draw_landmarks(
-                        frame,
-                        hand['landmarks_proto'],
-                        self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_drawing.DrawingSpec(
-                            color=(0, 255, 0),
-                            thickness=2,
-                            circle_radius=2
-                        ),
-                        self.mp_drawing.DrawingSpec(
-                            color=(255, 0, 0),
-                            thickness=2
-                        )
-                    )
+                if 'landmarks_raw' in hand:
+                    landmarks_raw = hand['landmarks_raw']
+                    
+                    # Store pixel coordinates
+                    pixel_landmarks = []
+                    for lm in landmarks_raw:
+                        x_px = min(int(lm.x * width), width - 1)
+                        y_px = min(int(lm.y * height), height - 1)
+                        pixel_landmarks.append((x_px, y_px))
+                        
+                        # Draw circle for landmark
+                        cv2.circle(frame, (x_px, y_px), 3, (0, 255, 0), -1)
+                        
+                    # Draw connections
+                    for connection in self.HAND_CONNECTIONS:
+                        start_idx = connection[0]
+                        end_idx = connection[1]
+                        
+                        start_point = pixel_landmarks[start_idx]
+                        end_point = pixel_landmarks[end_idx]
+                        
+                        cv2.line(frame, start_point, end_point, (255, 0, 0), 2)
+                        
         except Exception as e:
             logger.error(f"Drawing error: {e}")
     
     def get_hand_center_in_frame(self, frame, landmarks: List) -> Tuple[int, int]:
         """
         Get hand center position in frame coordinates.
-        
-        Args:
-            frame: Input frame
-            landmarks: Hand landmarks
-            
-        Returns:
-            Tuple[int, int]: (x, y) pixel coordinates
         """
         height, width = frame.shape[:2]
         center = LandmarksProcessor.get_hand_center(landmarks)
@@ -180,31 +178,32 @@ class HandDetector:
     def set_max_hands(self, max_num_hands: int) -> None:
         """
         Change maximum number of hands to detect.
-        
-        Requires re-initialization of MediaPipe.
-        
-        Args:
-            max_num_hands: New maximum (1 or 2)
         """
         max_num_hands = max(1, min(max_num_hands, 2))
         
         if max_num_hands != self.max_num_hands:
             self.max_num_hands = max_num_hands
-            self.hands.close()
             
-            self.hands = self.mp_hands.Hands(
-                static_image_mode=False,
-                max_num_hands=self.max_num_hands,
-                min_detection_confidence=self.min_detection_confidence,
-                min_tracking_confidence=self.min_tracking_confidence
+            if hasattr(self, 'detector') and self.detector is not None:
+                self.detector.close()
+            
+            base_options = python.BaseOptions(model_asset_path=MODEL_PATH)
+            options = vision.HandLandmarkerOptions(
+                base_options=base_options,
+                num_hands=self.max_num_hands,
+                min_hand_detection_confidence=self.min_detection_confidence,
+                min_hand_presence_confidence=self.min_tracking_confidence,
+                min_tracking_confidence=self.min_tracking_confidence,
+                running_mode=vision.RunningMode.VIDEO
             )
+            self.detector = vision.HandLandmarker.create_from_options(options)
             
             logger.info(f"Max hands changed to {self.max_num_hands}")
     
     def release(self) -> None:
         """Release MediaPipe resources."""
-        if self.hands is not None:
-            self.hands.close()
+        if hasattr(self, 'detector') and self.detector is not None:
+            self.detector.close()
             logger.info("Hand detector released")
     
     def __del__(self):
